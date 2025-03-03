@@ -23,6 +23,8 @@ from utils.tools import *
 from utils.Text_Prompt import *
 from utils.saving import  *
 
+""" 文本编码器 和 图像编码器 均复用 Clip 原来的，
+    只是在图像编码器上加了个 fusion_model(图像 prompt) """
 class TextCLIP(nn.Module):
     def __init__(self, model) :
         super(TextCLIP, self).__init__()
