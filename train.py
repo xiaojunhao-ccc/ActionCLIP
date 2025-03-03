@@ -197,6 +197,11 @@ def main():
             images= images.to(device).view(-1,c,h,w ) # omit the Image.fromarray if the images already in PIL format, change this line to images=list_image if using preprocess inside the dataset class
             texts = texts.to(device)
 
+            """
+            (model_image+fusion_model) 提取出 图像特征，
+            (text_embedding) 提取出 文本特征，
+            计算 图像特征 和 文本特征的 相似度分数，并与 GT 比较，计算损失
+            """
             # 提取图像特征
             image_embedding = model_image(images)
             image_embedding = image_embedding.view(b,t,-1)
@@ -215,7 +220,7 @@ def main():
             # 读取 GT
             ground_truth = torch.tensor(gen_label(list_id), dtype=image_embedding.dtype, device=device)
             
-            # 损失=图像模态损失 + 文本模态损失
+            # 损失 = (图像->文本) 匹配损失 + (文本->图像) 匹配损失
             loss_imgs = loss_img(logits_per_image, ground_truth)
             loss_texts = loss_txt(logits_per_text, ground_truth)
             total_loss = (loss_imgs + loss_texts)/2
