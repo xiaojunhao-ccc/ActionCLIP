@@ -88,15 +88,15 @@ def main():
     """模型定义"""
     """clip 预训练模型"""
     model, clip_state_dict = clip.load(
-        config.network.arch,
+        config.network.arch,  # 模型架构名称，例如 'ViT-B/16' 
         device=device,jit=False, 
-        tsm=config.network.tsm, 
-        T=config.data.num_segments,
-        dropout=config.network.drop_out, 
-        emb_dropout=config.network.emb_dropout,
-        pretrain=config.network.init, 
-        joint = config.network.joint) #Must set jit=False for training  ViT-B/32
-    """视频多帧特征池化模块""" # (降维时间维度，以匹配文本特征维度) (Post-network prompt: MeanP, Conv1D, LSTM and Transf)
+        tsm=config.network.tsm, # 禁用 TorchScript，即不使用 JIT 编译，确保模型可训练 - Must set jit=False for training  ViT-B/32 
+        T=config.data.num_segments, # 是否使用时间偏移模块（Temporal Shift Module）
+        dropout=config.network.drop_out, # 模型中使用的 dropout 概率
+        emb_dropout=config.network.emb_dropout, # 嵌入层的 dropout 概率
+        pretrain=config.network.init, # 预训练模型的路径或标识符
+        joint = config.network.joint) # 是否使用联合训练模式
+    """视频多帧特征池化模块"""  # (降维时间维度，以匹配文本特征维度) (Post-network prompt: MeanP, Conv1D, LSTM and Transf)
     fusion_model = visual_prompt(config.network.sim_header, clip_state_dict, config.data.num_segments)
     """文本 encoder"""
     model_text = TextCLIP(model)
@@ -124,12 +124,12 @@ def main():
     wandb.watch(fusion_model)
 
     """加载数据"""
-    train_data = Action_DATASETS(config.data.train_list,config.data.label_list,num_segments=config.data.num_segments,image_tmpl=config.data.image_tmpl,random_shift=config.data.random_shift,
+    train_data = Action_DATASETS(config.data.train_list, config.data.label_list, num_segments=config.data.num_segments, image_tmpl=config.data.image_tmpl, random_shift=config.data.random_shift,
                        transform=transform_train)
-    train_loader = DataLoader(train_data,batch_size=config.data.batch_size,num_workers=config.data.workers,shuffle=True,pin_memory=False,drop_last=True)
-    val_data = Action_DATASETS(config.data.val_list,config.data.label_list, random_shift=False,num_segments=config.data.num_segments,image_tmpl=config.data.image_tmpl,
+    train_loader = DataLoader(train_data, batch_size=config.data.batch_size, num_workers=config.data.workers, shuffle=True, pin_memory=False, drop_last=True)
+    val_data = Action_DATASETS(config.data.val_list,config.data.label_list, random_shift=False, num_segments=config.data.num_segments, image_tmpl=config.data.image_tmpl,
                        transform=transform_val)
-    val_loader = DataLoader(val_data,batch_size=config.data.batch_size,num_workers=config.data.workers,shuffle=False,pin_memory=False,drop_last=True)
+    val_loader = DataLoader(val_data, batch_size=config.data.batch_size, num_workers=config.data.workers, shuffle=False, pin_memory=False, drop_last=True)
 
     """开始训练"""
     # 从配置中读取 开始 epoch
