@@ -188,11 +188,11 @@ def main():
             optimizer.zero_grad() # 清空梯度
 
             # 调整 images 形状，使其符合 (batch, time, channels, height, width) 格式
-            images = images.view((-1,config.data.num_segments,3)+images.size()[-2:])
+            images = images.view((-1,config.data.num_segments,3) + images.size()[-2:])
             b,t,c,h,w = images.size()
             # 随机选择文本数据的增强版本
-            text_id = numpy.random.randint(num_text_aug,size=len(list_id))
-            texts = torch.stack([text_dict[j][i,:] for i,j in zip(list_id,text_id)])
+            text_id = numpy.random.randint(num_text_aug, size=len(list_id))
+            texts = torch.stack([text_dict[j][i,:] for i,j in zip(list_id, text_id)]) # prompt 增强后的的文本标签
             # 将 images 和 texts 迁移到计算设备
             images= images.to(device).view(-1,c,h,w ) # omit the Image.fromarray if the images already in PIL format, change this line to images=list_image if using preprocess inside the dataset class
             texts = texts.to(device)
@@ -211,13 +211,13 @@ def main():
             # 计算对比学习的 logit scale
             logit_scale = model.logit_scale.exp()
             # 计算图像和文本的对比学习相似度分数
-            logits_per_image, logits_per_text = create_logits(image_embedding,text_embedding,logit_scale)
+            logits_per_image, logits_per_text = calc_similarity(image_embedding, text_embedding, logit_scale)
             # 读取 GT
-            ground_truth = torch.tensor(gen_label(list_id),dtype=image_embedding.dtype,device=device)
+            ground_truth = torch.tensor(gen_label(list_id), dtype=image_embedding.dtype, device=device)
             
             # 损失=图像模态损失 + 文本模态损失
-            loss_imgs = loss_img(logits_per_image,ground_truth)
-            loss_texts = loss_txt(logits_per_text,ground_truth)
+            loss_imgs = loss_img(logits_per_image, ground_truth)
+            loss_texts = loss_txt(logits_per_text, ground_truth)
             total_loss = (loss_imgs + loss_texts)/2
             
             # 记录训练损失到 WandB（用于可视化）
