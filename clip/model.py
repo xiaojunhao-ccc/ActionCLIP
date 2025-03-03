@@ -327,7 +327,7 @@ def build_model(state_dict: dict, tsm=False,T=8,dropout=0., joint=False,emb_drop
     model = CLIP(
         embed_dim,
         image_resolution, vision_layers, vision_width, vision_patch_size,
-        context_length, vocab_size, transformer_width, transformer_heads, transformer_layers,  tsm=tsm,T=T,joint=joint,
+        context_length, vocab_size, transformer_width, transformer_heads, transformer_layers,  tsm=tsm, T=T, joint=joint,
         dropout=dropout, emb_dropout=emb_dropout
     )
 

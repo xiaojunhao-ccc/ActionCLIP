@@ -15,12 +15,12 @@ import yaml
 from dotmap import DotMap
 import pprint
 from modules.Visual_Prompt import visual_prompt
+from utils.Text_Prompt import *
 from utils.KLLoss import KLLoss
 from test import validate
 from utils.Augmentation import *
 from utils.solver import _optimizer, _lr_scheduler
 from utils.tools import *
-from utils.Text_Prompt import *
 from utils.saving import  *
 
 """ 文本编码器 和 图像编码器 均复用 Clip 原来的，
@@ -89,9 +89,10 @@ def main():
     """clip 预训练模型"""
     model, clip_state_dict = clip.load(
         config.network.arch,  # 模型架构名称，例如 'ViT-B/16' 
-        device=device,jit=False, 
-        tsm=config.network.tsm, # 禁用 TorchScript，即不使用 JIT 编译，确保模型可训练 - Must set jit=False for training  ViT-B/32 
-        T=config.data.num_segments, # 是否使用时间偏移模块（Temporal Shift Module）
+        device=device,
+        jit=False, # 禁用 TorchScript，即不使用 JIT 编译，确保模型可训练 - Must set jit=False for training  ViT-B/32 
+        tsm=config.network.tsm, # 是否使用时间偏移模块（Temporal Shift Module）
+        T=config.data.num_segments,  # 视频片段数
         dropout=config.network.drop_out, # 模型中使用的 dropout 概率
         emb_dropout=config.network.emb_dropout, # 嵌入层的 dropout 概率
         pretrain=config.network.init, # 预训练模型的路径或标识符

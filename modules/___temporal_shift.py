@@ -5,13 +5,16 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import os, sys
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, parent_dir)  # 让父目录模块优先导入
 from clip.model import VisualTransformer
 import numpy as np
 
 
 class TemporalShift(nn.Module):
     def __init__(self, net, n_segment=3, n_div=8, inplace=False):
-        super(TemporalShift, self).__init__()
+        super().__init__()
         self.net = net
         self.n_segment = n_segment
         self.fold_div = n_div
@@ -180,6 +183,11 @@ def make_temporal_pool(net, n_segment):
 
 
 if __name__ == '__main__':
+    """
+    这段代码在测试 Temporal Shift Module (TSM) 的两种实现方式（inplace=False 和 inplace=True）
+    在 CPU 和 GPU 上的前向传播（forward）和反向传播（backward）结果是否一致，
+    确保 inplace 版本不会引入数值误差或梯度计算问题。
+    """
     # test inplace shift v.s. vanilla shift
     tsm1 = TemporalShift(nn.Sequential(), n_segment=8, n_div=8, inplace=False)
     tsm2 = TemporalShift(nn.Sequential(), n_segment=8, n_div=8, inplace=True)
