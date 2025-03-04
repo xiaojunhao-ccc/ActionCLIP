@@ -1,7 +1,9 @@
 # Code for "ActionCLIP: ActionCLIP: A New Paradigm for Action Recognition"
 # arXiv:
 # Mengmeng Wang, Jiazheng Xing, Yong Liu
-
+import sys, os
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, parent_dir)  # 让父目录模块优先导入
 from datasets.transforms_ss import *
 from RandAugment import RandAugment
 
@@ -35,7 +37,7 @@ def get_augmentation(training, config):
                                                             input_std)])
     return torchvision.transforms.Compose([unique, common])
 
-def randAugment(transform_train,config):
+def randAugment(transform_train, config):
     print('Using RandAugment!')
     transform_train.transforms.insert(0, GroupTransform(RandAugment(config.data.randaug.N, config.data.randaug.M)))
     return transform_train
