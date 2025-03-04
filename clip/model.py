@@ -27,10 +27,10 @@ class QuickGELU(nn.Module):
 def drop_path(x, drop_prob: float = 0., training: bool = False):
     """
     在 batch 级别随机丢弃部分样本的残差路径
-    "一条高速公路上有多个收费站（残差路径），每辆车（样本）要随机决定是否通过某些收费站（是否进入残差路径），但最终在推理时所有收费站都会打开。"
+    "一条高速公路上有多个收费站 (残差路径)，每辆车 (样本) 要随机决定是否通过某些收费站 (是否进入残差路径)，但最终在推理时所有收费站都会打开。"
     ----------
     x : torch.Tensor
-        输入张量（Tensor）
+        输入张量 (Tensor)
     drop_prob : float, 默认 0.
         丢弃的概率，取值范围 [0,1]，若为 0，则不进行丢弃
     training : bool, 默认 False
@@ -72,7 +72,7 @@ class ResidualAttentionBlock(nn.Module):
     def __init__(self, d_model: int, n_head: int, attn_mask: torch.Tensor = None, dropout = 0.):
         super().__init__()
 
-        self.attn = nn.MultiheadAttention(d_model, n_head,dropout=dropout)
+        self.attn = nn.MultiheadAttention(d_model, n_head, dropout=dropout)
         self.ln_1 = LayerNorm(d_model)
         
         self.drop_path = DropPath(dropout) if dropout > 0. else nn.Identity()
@@ -116,13 +116,13 @@ class VisualTransformer(nn.Module):
         参数:
         - input_resolution (int): 输入图像的分辨率 (例如 224 表示 224x224)。
         - patch_size (int): 每个 patch 的大小 (例如 16 表示 16x16)。
-        - width (int): Transformer 的隐藏层维度（即 embedding 维度）。
+        - width (int): Transformer 的隐藏层维度 (即 embedding 维度)。
         - layers (int): Transformer 的层数 (encoder 块的数量)。
         - heads (int): 多头注意力机制中的头数。
         - output_dim (int): 最终输出的特征维度。
         - dropout (float, 可选): Transformer 中的 Dropout 概率，默认为 None。
-        - emb_dropout (float, 可选): 是否在 embedding 之后应用 Dropout（用于正则化）。
-        - joint (bool, 可选): 是否启用时空联合嵌入（用于视频数据）。
+        - emb_dropout (float, 可选): 是否在 embedding 之后应用 Dropout(用于正则化)。
+        - joint (bool, 可选): 是否启用时空联合嵌入 (用于视频数据)。
         - T (int, 可选): 视频片段数
         """
         super().__init__()
@@ -142,15 +142,15 @@ class VisualTransformer(nn.Module):
         )
 
         # **初始化 class token 和位置编码**
-        # 初始化时控制输出方差至 1 附近：如果每一层的输出方差 增大（>1），那么经过多层传播后，信号会不断放大，最终溢出；反之，如果方差 减小（<1），那么信号会不断衰减，导致梯度消失
+        # 初始化时控制输出方差至 1 附近：如果每一层的输出方差 增大 (>1)，那么经过多层传播后，信号会不断放大，最终溢出；反之，如果方差 减小 (<1)，那么信号会不断衰减，导致梯度消失
         scale = width ** -0.5  # 1/sqrt(n) 归一化，控制神经元的输出方差 | 根据方差乘法法则，输入维度增大时，输出方差也会增大
-        self.class_embedding = nn.Parameter(scale * torch.randn(width))  # 分类 token (可训练)
+        self.class_embedding = nn.Parameter(scale * torch.randn(width))  # cls 分类 token (可训练)
         patch_num = (input_resolution//patch_size)**2  # 被打成多少个 patch
         self.positional_embedding = nn.Parameter(  # 位置编码，包括 class token 位置
             scale * torch.randn(patch_num+1, width)  # +1 为 额外的 CLS Token
         )  
         
-        # Embedding 层的 Dropout（如果设置了）
+        # Embedding 层的 Dropout(如果设置了)
         self.dropout = nn.Dropout(emb_dropout)
         self.emb_dropout = emb_dropout  # dropout 率
          # 输出 embedding Dropout 信息
@@ -167,12 +167,12 @@ class VisualTransformer(nn.Module):
         self.ln_post = LayerNorm(width)  # 层归一化
         self.proj = nn.Parameter(scale * torch.randn(width, output_dim))  # 最终投影到输出维度
 
-        # 是否启用时空联合嵌入（通常用于视频） --- BY: ActionClip
+        # 是否启用时空联合嵌入 (通常用于视频) --- BY: ActionClip
         self.joint = joint  
-        # **时空联合嵌入（仅在 joint 模式下启用）**
+        # **时空联合嵌入 (仅在 joint 模式下启用)**
         if joint:
             print('=====using joint space-time====')   # 时间编码 | 仿位置编码引入位置信息，时间编码引入时间信息
-            self.time_embedding = nn.Parameter(scale * torch.randn(T, width))  # T:视频片段数（时间步）
+            self.time_embedding = nn.Parameter(scale * torch.randn(T, width))  # T:视频片段数 (时间步)
 
     def forward(self, x: torch.Tensor):
         """
@@ -200,11 +200,11 @@ class VisualTransformer(nn.Module):
         # **4. 加入位置编码**
         x = x + self.positional_embedding.to(x.dtype)
 
-        # **5. 处理时空联合嵌入（仅适用于视频）**
+        # **5. 处理时空联合嵌入 (仅适用于视频)**
         if self.joint:
             B = x.shape[0] // self.T  # 计算 batch 维度的样本数量
             cls_tokens = x[:B, 0, :].unsqueeze(1)  # 获取 class token
-            x = x[:, 1:]  # 移除 class token，因为时间编码不加在 class token 上 |（class token 只加了位置编码）
+            x = x[:, 1:]  # 移除 class token，因为时间编码不加在 class token 上 |(class token 只加了位置编码)
             
             # **对时序维度进行调整**
             x = rearrange(x, '(b t) n m -> (b n) t m', b=B, t=self.T)  # 重新排列时间维度 | n: patch_num | m: width-每个 patch 的特征维度 
@@ -212,7 +212,7 @@ class VisualTransformer(nn.Module):
             x = rearrange(x, '(b n) t m -> b (n t) m', b=B, t=self.T)  # 变回原格式
             x = torch.cat((cls_tokens, x), dim=1)  # 重新添加 class token -> (batch_size, patch_num+1, width) 即 (batch_size, seq_len, width) 
         
-        # **6. Embedding Dropout（如果启用）**
+        # **6. Embedding Dropout(如果启用)**
         if self.emb_dropout > 0:
             x = self.dropout(x)
 
@@ -224,82 +224,91 @@ class VisualTransformer(nn.Module):
         x = self.transformer(x)
         x = x.permute(1, 0, 2)  # (seq_len, batch_size, width) -> (batch_size, seq_len, width)
 
-        # **9. 取出 class token 并归一化**
-        x = self.ln_post(x[:, 0, :])  # 取出第一个 token（class token）
+        # **9. 取出 CLS token 表示整个视频序列的特征**
+        CLS = self.ln_post(x[:, 0, :])  # (batch_size, 1, width)
 
-        # **10. 进行投影（如果启用）**
+        # **10. 进行投影 (如果启用)**
         if self.proj is not None:
-            x = x @ self.proj  # 矩阵乘法，将特征投影到 output_dim 维度
+            image_features = CLS @ self.proj  # 矩阵乘法，将特征投影到 output_dim 维度
         
-        return x  # 返回最终特征
+        return image_features  # 返回最终特征
 
 class CLIP(nn.Module):
     def __init__(self,
                  embed_dim: int,
-                 # vision
-                 image_resolution: int,
-                 vision_layers: Union[Tuple[int, int, int, int], int],
-                 vision_width: int,
-                 vision_patch_size: int,
-                 # text
-                 context_length: int,
-                 vocab_size: int,
-                 transformer_width: int,
-                 transformer_heads: int,
-                 transformer_layers: int,
+                 # 视觉 (Vision) 部分
+                 image_resolution: int, # 输入图像的分辨率 (如 224)
+                 vision_layers: Union[Tuple[int, int, int, int], int], # 视觉 Transformer 的层数
+                 vision_width: int,  # 视觉 Transformer 的隐藏层宽度
+                 vision_patch_size: int,  # Patch 的大小 (ViT 模型)
+                 # 文本 (Text) 部分
+                 context_length: int,  # 最大文本长度 (序列长度)
+                 vocab_size: int, # 词表大小 (Embedding 层的输入维度)
+                 transformer_width: int, # Transformer 的隐藏层宽度
+                 transformer_heads: int, # Transformer 的注意力头数
+                 transformer_layers: int, # Transformer 的层数
+                 # 其他参数
                  joint=False, # 是否使用时间信息编码，和位置编码进行联合训练
-                 tsm=False, # 是否使用时间偏移模块（Temporal Shift Module
+                 tsm=False, # 是否使用时间偏移模块 (Temporal Shift Module
                  T=8,  # 视频片段数
                  dropout=0., # Transformer 中的 Dropout 概率
-                 emb_dropout = 0. # 是否在 embedding 之后应用 Dropout（用于正则化）。
+                 emb_dropout = 0. # 是否在 embedding 之后应用 Dropout(用于正则化)。
                  ):
         super().__init__()
 
         self.context_length = context_length
+
         if dropout > 0.:
-            dpr = [x.item() for x in torch.linspace(0, dropout, vision_layers)]  # stochastic depth decay rule
+            dpr = [x.item() for x in torch.linspace(0, dropout, vision_layers)]  # 从 0 逐步递增到 dropout 的 渐进式的 Dropout 衰减
         else:
             dpr = None
 
-        vision_heads = vision_width // 64
-        self.visual = VisualTransformer(
-            input_resolution=image_resolution,
-            patch_size=vision_patch_size,
-            width=vision_width,
-            layers=vision_layers,
-            heads=vision_heads,
-            output_dim=embed_dim,
+        # 创建视觉 Transformer
+        vision_heads = vision_width // 64  # 计算 Transformer 头数，通常设为 width/64
+        self.visualTransformer = VisualTransformer(
+            input_resolution=image_resolution,  # 图像输入分辨率
+            patch_size=vision_patch_size,  # Patch 的大小
+            width=vision_width,  # Transformer 的隐藏层宽度
+            layers=vision_layers,  # 视觉 Transformer 的层数
+            heads=vision_heads,  # 计算得出的多头注意力头数
+            output_dim=embed_dim,  # 输出的特征维度
             dropout=dpr, # Transformer 中的 Dropout 概率，默认为 None。
-            emb_dropout=emb_dropout, # 是否在 embedding 之后应用 Dropout（用于正则化）。
+            emb_dropout=emb_dropout, # 是否在 embedding 之后应用 Dropout(用于正则化)。
             joint=joint, # 是否使用时间信息编码，和位置编码进行联合训练
             T=T # 视频片段数
         )
+
+        # 时间偏移模块，用于视频任务中的时间建模。
         if tsm:
             print('=========using TSM==========')
             from modules.temporal_shift import make_temporal_shift_vit
-            make_temporal_shift_vit(self.visual, T)
+            make_temporal_shift_vit(self.visualTransformer, T)
 
+        # 构建文本 Transformer
         self.transformer = Transformer(
-            width=transformer_width,
-            layers=transformer_layers,
-            heads=transformer_heads,
-            attn_mask=self.build_attention_mask(),
-            dropout=dpr
+            width=transformer_width,  # Transformer 隐藏层维度
+            layers=transformer_layers,  # Transformer 层数
+            heads=transformer_heads,  # Transformer 注意力头数
+            attn_mask=self.build_attention_mask(),  # 注意力掩码 (mask)
+            dropout=dpr  # Dropout
         )
 
-        self.vocab_size = vocab_size
-        self.token_embedding = nn.Embedding(vocab_size, transformer_width)
-        self.positional_embedding = nn.Parameter(torch.empty(self.context_length, transformer_width))
-        self.ln_final = LayerNorm(transformer_width)
+        self.vocab_size = vocab_size  # 词表大小
+        self.token_embedding = nn.Embedding(vocab_size, transformer_width)  # 词嵌入层
+        self.positional_embedding = nn.Parameter(torch.empty(self.context_length, transformer_width))  # 位置编码
+        self.ln_final = LayerNorm(transformer_width)  # LayerNorm 归一化层
         
-        self.dropout = nn.Dropout(emb_dropout)
+        self.dropout = nn.Dropout(emb_dropout) # embedding 层的 dropout
         self.emb_dropout = emb_dropout
         
-        self.text_projection = nn.Parameter(torch.empty(transformer_width, embed_dim))
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        self.text_projection = nn.Parameter(torch.empty(transformer_width, embed_dim))  # project head 将文本特征投影到 embed_dim 维度
+        
+        τ = 0.07 # CLIP 训练时的 softmax 温度参数 τ，较小的 τ(较大的 logit_scale)：分布更加陡峭，相似度高的样本更加突出
+        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / τ)) # 控制 logits 在 softmax 计算中的放缩 (CLIP 训练时的 softmax 温度)
 
-        self.initialize_parameters()
+        self.initialize_parameters()  # 初始化权重
 
+    # 权重初始化
     def initialize_parameters(self):
         nn.init.normal_(self.token_embedding.weight, std=0.02)
         nn.init.normal_(self.positional_embedding, std=0.01)
@@ -316,98 +325,134 @@ class CLIP(nn.Module):
         if self.text_projection is not None:
             nn.init.normal_(self.text_projection, std=self.transformer.width ** -0.5)
 
+    # 构建 因果注意力掩码 (causal attention mask) - 上三角矩阵 - 仅允许 Transformer 看到 当前 Token 及其之前的 Token，防止未来信息泄露。
     def build_attention_mask(self):
         # lazily create causal attention mask, with full attention between the vision tokens
         # pytorch uses additive attention mask; fill with -inf
         mask = torch.empty(self.context_length, self.context_length)
         mask.fill_(float("-inf"))
-        mask.triu_(1)  # zero out the lower diagonal
+        mask.triu_(1)  # 仅保留上三角矩阵
         return mask
 
-    @property
+    @property  # 将 类方法 转换为 只读属性，从而允许像访问普通属性一样调用方法，而无需加括号
     def dtype(self):
-        return self.visual.conv1.weight.dtype
+        return self.visualTransformer.conv1.weight.dtype
 
+    # 视觉编码器 (ViT)
     def encode_image(self, image):
-        return self.visual(image.type(self.dtype))
+        return self.visualTransformer(image.type(self.dtype))
 
+    # 文本编码器
     def encode_text(self, text):
-        x = self.token_embedding(text).type(self.dtype)  # [batch_size, n_ctx, d_model]
-
+        # 将输入文本转换为 token 嵌入，形状为 [batch_size, n_ctx(上下文长度), transformer_width]
+        x = self.token_embedding(text).type(self.dtype)  
+        # 加上可训练的位置编码，保留序列位置信息
         x = x + self.positional_embedding.type(self.dtype)
+        # 若 emb_dropout > 0，则应用 Dropout 进行正则化
         if self.emb_dropout > 0:
             x = self.dropout(x)
-        x = x.permute(1, 0, 2)  # NLD -> LND
+        
+        # 通过 Transformer 进行文本编码
+        x = x.permute(1, 0, 2)  # 调整维度为 [n_ctx, batch_size, transformer_width] 以适配 Transformer
         x = self.transformer(x)
-        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = x.permute(1, 0, 2)  # 还原维度为 [batch_size, n_ctx, transformer_width]
+
+        # 通过 layerNorm 层归一化数据
         x = self.ln_final(x).type(self.dtype)
 
-        # x.shape = [batch_size, n_ctx, transformer.width]
-        # take features from the eot embedding (eot_token is the highest number in each sequence)
-        x = x[torch.arange(x.shape[0]), text.argmax(dim=-1)] @ self.text_projection
+        # 使用 EOT (End-of-Text) token 对应的特征作为整个文本序列的表示 (类似 Bert 用 [cls] token)
+        EOT = x[torch.arange(x.shape[0]), text.argmax(dim=-1)]  
 
-        return x
+        # 通过 `text_projection` 进行线性变换，得到最终的文本特征
+        text_features  = EOT @ self.text_projection  
+
+        # 返回文本的编码向量
+        return text_features 
 
     def forward(self, image, text):
+        # 提取文本、图像特征
         image_features = self.encode_image(image)
         text_features = self.encode_text(text)
 
-        # normalized features
-        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        # 归一化特征向量：沿着特征维度计算特征向量的模，并用特征向量除以模
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True) # xxx_features.norm: 计算每个特征向量的模 (L2 范数)
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        
+        # 计算 图像 和 文本 间的 相似度
+        logit_scale = self.logit_scale.exp() # 温度参数 τ 的倒数
+        logits_per_image = logit_scale * image_features @ text_features.t() # image->text 相似度
+        logits_per_text = logit_scale * text_features @ image_features.t() # text->image 相似度
 
-        # cosine similarity as logits
-        logit_scale = self.logit_scale.exp()
-        logits_per_image = logit_scale * image_features @ text_features.t()
-        logits_per_text = logit_scale * text_features @ image_features.t()
-
-        # shape = [global_batch_size, global_batch_size]
         return logits_per_image, logits_per_text
 
 
 def convert_weights(model: nn.Module):
-    """Convert applicable model parameters to fp16"""
-
+    """将模型中的适用参数转换为 fp16 (半精度浮点数)"""
+    
     def _convert_weights_to_fp16(l):
+        
+        # 如果层是 1D 或 2D 卷积层，或者是全连接层 (线性层)
         if isinstance(l, (nn.Conv1d, nn.Conv2d, nn.Linear)):
+            # 将权重转换为半精度浮点数 (fp16)
             l.weight.data = l.weight.data.half()
+            # 如果该层有偏置项，也将其转换为 fp16
             if l.bias is not None:
                 l.bias.data = l.bias.data.half()
-
+       
+        # 如果层是 MultiheadAttention(多头注意力机制)
         if isinstance(l, nn.MultiheadAttention):
+            """
+            遍历需要转换的权重参数，包括：
+            "in_proj_weight"(输入投影权重)
+            "q_proj_weight"(Q 投影权重)
+            "k_proj_weight"(K 投影权重)
+            "v_proj_weight"(V 投影权重)
+            "in_proj_bias"(输入投影偏置)
+            "bias_k"(K 偏置)
+            "bias_v"(V 偏置)"""
             for attr in [*[f"{s}_proj_weight" for s in ["in", "q", "k", "v"]], "in_proj_bias", "bias_k", "bias_v"]:
-                tensor = getattr(l, attr)
+                tensor = getattr(l, attr)  # 获取相应名称的参数
+                # 如果该权重存在，则转换为 fp16
                 if tensor is not None:
                     tensor.data = tensor.data.half()
-
+        
+        # 处理 `text_projection` 和 `proj` 这两个可能的额外参数
         for name in ["text_projection", "proj"]:
+            # 如果该层有这些属性
             if hasattr(l, name):
-                attr = getattr(l, name)
+                attr = getattr(l, name) # 获取相应名称的参数
+                # 如果该参数存在，则转换为 fp16
                 if attr is not None:
                     attr.data = attr.data.half()
-
+    
+    # 对 model 的所有子模块递归应用 `_convert_weights_to_fp16`
     model.apply(_convert_weights_to_fp16)
 
 
-def build_model(state_dict: dict, tsm=False,T=8, dropout=0., joint=False, emb_dropout=0., pretrain=True):
-    vit = "visual.proj" in state_dict
+# 构建 CLIP 模型
+def build_model(state_dict:dict, tsm=False,T=8, dropout=0., joint=False, emb_dropout=0., pretrain=True):
+    """
+    根据给定的 `state_dict`(预训练权重字典) 构建 CLIP 模型，并根据 `tsm`、`pretrain` 等参数进行调整。
+        参数：
+        - state_dict (dict): 预训练模型的权重字典。
+        - tsm (bool): 是否使用 Temporal Shift Module(时间偏移模块)。
+        - T (int): 视频片段数，时序维度的长度 (如果 `tsm=True`)。
+        - dropout (float): Transformer 层的 dropout 率。
+        - joint (bool): 是否使用时间信息编码，和位置编码进行联合训练。
+        - emb_dropout (float): 词向量层的 dropout 率。
+        - pretrain (bool): 是否加载完整的预训练模型。
+        返回：
+        - model (nn.Module): 经过初始化的 CLIP 模型，默认处于 `eval()` 模式。
+    """
+    # 判断 `state_dict` 是否是 ViT 结构
+    assert "visual.proj" in state_dict, 'THIS IS NOT VIT MODEL > "visual.proj" not in state_dict'
 
-    if vit:
-        vision_width = state_dict["visual.conv1.weight"].shape[0]
-        vision_layers = len([k for k in state_dict.keys() if k.startswith("visual.") and k.endswith(".attn.in_proj_weight")])
-        vision_patch_size = state_dict["visual.conv1.weight"].shape[-1]
-        grid_size = round((state_dict["visual.positional_embedding"].shape[0] - 1) ** 0.5)
-        image_resolution = vision_patch_size * grid_size
-    else:
-        counts: list = [len(set(k.split(".")[2] for k in state_dict if k.startswith(f"visual.layer{b}"))) for b in [1, 2, 3, 4]]
-        vision_layers = tuple(counts)
-        
-        vision_width = state_dict["visual.layer1.0.conv1.weight"].shape[0]
-        output_width = round((state_dict["visual.attnpool.positional_embedding"].shape[0] - 1) ** 0.5)
-        vision_patch_size = None
-        assert output_width ** 2 + 1 == state_dict["visual.attnpool.positional_embedding"].shape[0]
-        image_resolution = output_width * 32
-
+    # 从权重文件中提取模型信息
+    vision_width = state_dict["visual.conv1.weight"].shape[0]  # conv1.weight.shape=(Cout,Cin,PatchSize,PatchSize)
+    vision_layers = len([k for k in state_dict.keys() if k.startswith("visual.") and k.endswith(".attn.in_proj_weight")])
+    vision_patch_size = state_dict["visual.conv1.weight"].shape[-1]
+    grid_size = round((state_dict["visual.positional_embedding"].shape[0] - 1) ** 0.5)
+    image_resolution = vision_patch_size * grid_size
     embed_dim = state_dict["text_projection"].shape[1]
     context_length = state_dict["positional_embedding"].shape[0]
     vocab_size = state_dict["token_embedding.weight"].shape[0]
@@ -415,6 +460,7 @@ def build_model(state_dict: dict, tsm=False,T=8, dropout=0., joint=False, emb_dr
     transformer_heads = transformer_width // 64
     transformer_layers = len(set(k.split(".")[2] for k in state_dict if k.startswith(f"transformer.resblocks")))
     
+    # 构建 CLIP 模型
     model = CLIP(
         embed_dim,
         image_resolution, vision_layers, vision_width, vision_patch_size,
@@ -422,9 +468,12 @@ def build_model(state_dict: dict, tsm=False,T=8, dropout=0., joint=False, emb_dr
         dropout=dropout, emb_dropout=emb_dropout
     )
 
+    # 删除 `state_dict` 中无关的键
     for key in ["input_resolution", "context_length", "vocab_size"]:
         if key in state_dict:
             del state_dict[key]
+    
+    # 如果启用了 `tsm`（时间偏移），需要调整 `state_dict` 的键名
     if tsm:
         for k in list(state_dict.keys()):
             if k.find("conv1")>-1 and k.find("layer")>-1: 
@@ -435,12 +484,13 @@ def build_model(state_dict: dict, tsm=False,T=8, dropout=0., joint=False, emb_dr
                 for i, t_ in enumerate(k.split('resblocks.')[1].split('.')):
                     if i>=1:
                         tmp += '.' + t_ 
-                
                 n_k = k.split('resblocks.')[0]+'resblocks.' + k.split('resblocks.')[1].split('.')[0]+'.net'+ tmp
-#                 print(n_k)
                 state_dict[n_k] = state_dict.pop(k)
 
+    # 转换模型参数为 `fp16`（半精度）
     convert_weights(model)
+    
+    # 加载预训练权重
     if pretrain:
         print('loading clip pretrained model!')
         if joint:  #or emb_dropout>0 or dropout>0
@@ -454,6 +504,7 @@ def build_model(state_dict: dict, tsm=False,T=8, dropout=0., joint=False, emb_dr
             if not k.find("visual")>-1: 
                 state_dict.pop(k)
 
-        model.load_state_dict(state_dict,strict=False)
+        model.load_state_dict(state_dict, strict=False)
 
+    # 默认返回 `eval()` 模式的模型
     return model.eval()
