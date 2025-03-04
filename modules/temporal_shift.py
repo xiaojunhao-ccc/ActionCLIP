@@ -71,19 +71,14 @@ def make_temporal_shift_vit(net, n_segment, n_div=8, place='block'):
     assert isinstance(net, VisualTransformer), "The net should be 'VisualTransformer'"
     assert place == 'block', "The place should be 'block', The extra place is unimplemented"
 
-    n_segment_list = [n_segment] * 4 
-
-    assert n_segment_list[-1] > 0  # 确保最后一个层级的片段数大于零
-    print('=> n_segment per stage: {}'.format(n_segment_list))
-    
-    def _make_block_temporal(stage, this_segment):
+    def _make_block_temporal(stage, n_segment):
         blocks = list(stage.children())
         print('=> Processing stage with {} blocks'.format(len(blocks)))
         # 遍历指定层级中的所有块，将这些块替换为有时间位移模块的`TemporalShift_VIT`
         for i, b in enumerate(blocks):
-            blocks[i] = TemporalShift_VIT(b, n_segment=this_segment, n_div=n_div)
+            blocks[i] = TemporalShift_VIT(b, n_segment=n_segment, n_div=n_div)
         return nn.Sequential(*(blocks))
 
     # 给 net.transformer.resblocks 添加 时间位移模块 (Temporal Shift Module)
     net.transformer.resblocks = _make_block_temporal(stage=net.transformer.resblocks, 
-                                                     this_segment=n_segment_list[0])
+                                                     n_segment=n_segment)
