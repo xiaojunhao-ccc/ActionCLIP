@@ -6,7 +6,6 @@ from collections import OrderedDict
 from typing import Tuple, Union
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch import nn
 from einops import rearrange
 
@@ -76,7 +75,7 @@ class ResidualAttentionBlock(nn.Module):
         self.ln_1 = LayerNorm(d_model)
         
         self.drop_path = DropPath(dropout) if dropout > 0. else nn.Identity()
-        self.mlp = nn.Sequential(OrderedDict([
+        self.mlp = nn.Sequential(OrderedDict([  # 有序字典，会记住键值对的插入顺序
             ("c_fc", nn.Linear(d_model, d_model * 4)),
             ("gelu", QuickGELU()),
             ("c_proj", nn.Linear(d_model * 4, d_model))
@@ -473,12 +472,16 @@ def build_model(state_dict:dict, tsm=False,T=8, dropout=0., joint=False, emb_dro
         if key in state_dict:
             del state_dict[key]
     
-    # 如果启用了 `tsm`（时间偏移），需要调整 `state_dict` 的键名
+    # 如果启用了 `tsm`(时间偏移)，需要调整 `state_dict` 的键名
     if tsm:
         for k in list(state_dict.keys()):
+            
+            # 处理 `conv1` 层的参数，修改键名以匹配 `TSM` 结构
             if k.find("conv1")>-1 and k.find("layer")>-1: 
                 n_k = k.split('conv1.')[0]+'conv1.net.'+k.split('conv1.')[1]
                 state_dict[n_k] = state_dict.pop(k)
+            
+            # 处理 `resblocks` 层的参数，修改键名以匹配 `TSM` 结构
             if k.find("resblocks")>-1 and k.find("visual")>-1: 
                 tmp = ''
                 for i, t_ in enumerate(k.split('resblocks.')[1].split('.')):
@@ -487,7 +490,7 @@ def build_model(state_dict:dict, tsm=False,T=8, dropout=0., joint=False, emb_dro
                 n_k = k.split('resblocks.')[0]+'resblocks.' + k.split('resblocks.')[1].split('.')[0]+'.net'+ tmp
                 state_dict[n_k] = state_dict.pop(k)
 
-    # 转换模型参数为 `fp16`（半精度）
+    # 转换模型参数为 `fp16`(半精度)
     convert_weights(model)
     
     # 加载预训练权重

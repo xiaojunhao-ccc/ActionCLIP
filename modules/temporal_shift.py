@@ -152,7 +152,6 @@ def make_temporal_shift_vit(net, n_segment, n_div=8, place='block', temporal_poo
     assert n_segment_list[-1] > 0
     print('=> n_segment per stage: {}'.format(n_segment_list))
 
-    import torchvision
     if isinstance(net, VisualTransformer):
         if place == 'block':
             def make_block_temporal(stage, this_segment):
