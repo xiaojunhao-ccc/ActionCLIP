@@ -73,7 +73,7 @@ def available_models() -> List[str]:
     return list(_MODELS.keys())
 
 # 加载 clip 模型
-def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu", jit=True, tsm=False, joint=False,T=8,dropout=0., emb_dropout=0.,pretrain=True):
+def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu", jit=True, tsm=False, joint=False, T=8, dropout=0., emb_dropout=0.,pretrain=True):
     """Load a CLIP model
 
     Parameters
@@ -117,8 +117,8 @@ def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_a
         model = build_model(state_dict or model.state_dict(),  # 通过 state_dict 或从 JIT 模型提取的 state_dict 构建模型
                             joint=joint,  # 是否进行联合训练
                             tsm=tsm,  # 是否启用 Temporal Shift Module（时间偏移模块）
-                            T=T,  # 时间步数
-                            dropout=dropout,  # Dropout 概率
+                            T=T,  # 视频片段数 (时间步)
+                            dropout=dropout,  # Transformer 中的 Dropout 概率，默认为 None。
                             emb_dropout=emb_dropout,  # Embedding 层的 Dropout 概率
                             pretrain=pretrain  # 预训练权重的来源
                         ).to(device)  # 将模型移动到指定设备

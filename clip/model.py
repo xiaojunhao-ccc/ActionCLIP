@@ -4,38 +4,11 @@
 
 from collections import OrderedDict
 from typing import Tuple, Union
-
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-
-def drop_path(x, drop_prob: float = 0., training: bool = False):
-    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
-    This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
-    the original name is misleading as 'Drop Connect' is a different form of dropout in a separate paper...
-    See discussion: https://github.com/tensorflow/tpu/issues/494#issuecomment-532968956 ... I've opted for
-    changing the layer and argument names to 'drop path' rather than mix DropConnect as a layer name and use
-    'survival rate' as the argument.
-    """
-    if drop_prob == 0. or not training:
-        return x
-    keep_prob = 1 - drop_prob
-    shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
-    random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
-    random_tensor.floor_()  # binarize
-    output = x.div(keep_prob) * random_tensor
-    return output
-
-class DropPath(nn.Module):
-    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
-    """
-    def __init__(self, drop_prob=None):
-        super(DropPath, self).__init__()
-        self.drop_prob = drop_prob
-
-    def forward(self, x):
-        return drop_path(x, self.drop_prob, self.training)
+from einops import rearrange
 
 class LayerNorm(nn.LayerNorm):
     """Subclass torch's LayerNorm to handle fp16."""
@@ -47,11 +20,55 @@ class LayerNorm(nn.LayerNorm):
 
 
 class QuickGELU(nn.Module):
+    """QuickGELU: 通过 x * sigmoid(1.702 * x) 近似 GELU，计算更快，适用于大规模 Transformer 任务"""
     def forward(self, x: torch.Tensor):
         return x * torch.sigmoid(1.702 * x)
 
+def drop_path(x, drop_prob: float = 0., training: bool = False):
+    """
+    在 batch 级别随机丢弃部分样本的残差路径
+    "一条高速公路上有多个收费站（残差路径），每辆车（样本）要随机决定是否通过某些收费站（是否进入残差路径），但最终在推理时所有收费站都会打开。"
+    ----------
+    x : torch.Tensor
+        输入张量（Tensor）
+    drop_prob : float, 默认 0.
+        丢弃的概率，取值范围 [0,1]，若为 0，则不进行丢弃
+    training : bool, 默认 False
+        是否处于训练模式，仅在训练时启用 Drop Path
+    ----------
+    torch.Tensor
+        经过 Drop Path 处理后的张量
+    """
+    # 若 drop_prob 为 0 或当前不处于训练模式，则直接返回输入 x，不进行 Drop Path 操作
+    if drop_prob == 0. or not training:
+        return x
+    # 计算保留的概率
+    keep_prob = 1 - drop_prob 
+    
+    # 生成一个随机张量，与 x 具有相同 batch 维度的形状，其他维度均为 1，每个样本单独应用随机深度
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # 例如：x (8, 3, 224, 224) -> shape (8, 1, 1, 1)
+    mask = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)  # 随机在一个 batch 中丢弃部分样本
+    # 使用 floor_() 进行二值化，使其变为 0 或 1，即以 drop_prob 的概率丢弃路径
+    mask.floor_()
+    
+    # 由于部分路径被丢弃，为保持整体期望不变，需要用 keep_prob 进行归一化 (放大)，以确保在 training=True 时，模型的输出分布与 training=False 时保持一致
+    output = x.div(keep_prob) * mask  
+    
+    return output
+
+class DropPath(nn.Module):
+    """
+    Drop Path (随机深度) 模块，用于神经网络的残差路径中进行随机丢弃，起到正则化的作用。
+    """
+    def __init__(self, drop_prob=None):
+        super(DropPath, self).__init__()
+        self.drop_prob = drop_prob  # 存储丢弃概率
+
+    def forward(self, x):
+        return drop_path(x, self.drop_prob, self.training)
 
 class ResidualAttentionBlock(nn.Module):
+    """残差注意力模块"""
     def __init__(self, d_model: int, n_head: int, attn_mask: torch.Tensor = None, dropout = 0.):
         super().__init__()
 
@@ -76,7 +93,7 @@ class ResidualAttentionBlock(nn.Module):
         x = x + self.drop_path(self.mlp(self.ln_2(x)))
         return x
 
-
+"""残差注意力网络"""
 class Transformer(nn.Module):
     def __init__(self, width: int, layers: int, heads: int, attn_mask: torch.Tensor = None, dropout=None):
         super().__init__()
@@ -91,63 +108,130 @@ class Transformer(nn.Module):
     def forward(self, x: torch.Tensor):
         return self.resblocks(x)
 
+class VisualTransformer(nn.Module):  
+    def __init__(self, input_resolution: int, patch_size: int, width: int, layers: int, heads: int, output_dim: int, dropout=None, emb_dropout=0., joint=False, T=None):
+        """
+        视觉 Transformer (ViT) 结构，适用于图像分类等任务。
 
-class VisualTransformer(nn.Module):
-    def __init__(self, input_resolution: int, patch_size: int, width: int, layers: int, heads: int, output_dim: int,dropout = None,joint=False, emb_dropout = 0.):
+        参数:
+        - input_resolution (int): 输入图像的分辨率 (例如 224 表示 224x224)。
+        - patch_size (int): 每个 patch 的大小 (例如 16 表示 16x16)。
+        - width (int): Transformer 的隐藏层维度（即 embedding 维度）。
+        - layers (int): Transformer 的层数 (encoder 块的数量)。
+        - heads (int): 多头注意力机制中的头数。
+        - output_dim (int): 最终输出的特征维度。
+        - dropout (float, 可选): Transformer 中的 Dropout 概率，默认为 None。
+        - emb_dropout (float, 可选): 是否在 embedding 之后应用 Dropout（用于正则化）。
+        - joint (bool, 可选): 是否启用时空联合嵌入（用于视频数据）。
+        - T (int, 可选): 视频片段数
+        """
         super().__init__()
-        self.input_resolution = input_resolution
-        self.output_dim = output_dim
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=width, kernel_size=patch_size, stride=patch_size, bias=False)
+        
+        # 保存输入分辨率和输出维度
+        self.input_resolution = input_resolution  # 输入图像的分辨率，例如 224×224
+        self.output_dim = output_dim  
+        
+        # **卷积层：将输入图像转换为 patch embedding**
+        # 这里使用一个 2D 卷积层，类似于 ViT 直接将图像分割为 patch，并进行 embedding
+        self.conv1 = nn.Conv2d(
+            in_channels=3,      # 输入通道数，RGB 图像为 3
+            out_channels=width, # 输出通道数，即 embedding 维度
+            kernel_size=patch_size, # patch 大小，例如 16×16
+            stride=patch_size,   # 步长等于 patch 大小，相当于划分成不重叠的 patch
+            bias=False          # 不使用偏置
+        )
 
-        scale = width ** -0.5
-        self.class_embedding = nn.Parameter(scale * torch.randn(width))
-        self.positional_embedding = nn.Parameter(scale * torch.randn((input_resolution // patch_size) ** 2 + 1, width))
+        # **初始化 class token 和位置编码**
+        # 初始化时控制输出方差至 1 附近：如果每一层的输出方差 增大（>1），那么经过多层传播后，信号会不断放大，最终溢出；反之，如果方差 减小（<1），那么信号会不断衰减，导致梯度消失
+        scale = width ** -0.5  # 1/sqrt(n) 归一化，控制神经元的输出方差 | 根据方差乘法法则，输入维度增大时，输出方差也会增大
+        self.class_embedding = nn.Parameter(scale * torch.randn(width))  # 分类 token (可训练)
+        patch_num = (input_resolution//patch_size)**2  # 被打成多少个 patch
+        self.positional_embedding = nn.Parameter(  # 位置编码，包括 class token 位置
+            scale * torch.randn(patch_num+1, width)  # +1 为 额外的 CLS Token
+        )  
+        
+        # Embedding 层的 Dropout（如果设置了）
         self.dropout = nn.Dropout(emb_dropout)
-        self.ln_pre = LayerNorm(width)
-        self.emb_dropout = emb_dropout
-        self.joint = joint
-        if joint:
-            print('=====using joint space-time====')
-            self.time_embedding = nn.Parameter(scale * torch.randn(T, width))
+        self.emb_dropout = emb_dropout  # dropout 率
+         # 输出 embedding Dropout 信息
         if emb_dropout > 0:
             print('emb_dropout:{}'.format(emb_dropout))
 
-        ## Attention Blocks
-        self.transformer = Transformer(width, layers, heads, dropout=dropout)
+        # 层归一化
+        self.ln_pre = LayerNorm(width)  
 
-        self.ln_post = LayerNorm(width)
-        self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
+        # **Transformer 编码器**
+        self.transformer = Transformer(width, layers, heads, dropout=dropout)  
+
+        # **输出层**
+        self.ln_post = LayerNorm(width)  # 层归一化
+        self.proj = nn.Parameter(scale * torch.randn(width, output_dim))  # 最终投影到输出维度
+
+        # 是否启用时空联合嵌入（通常用于视频） --- BY: ActionClip
+        self.joint = joint  
+        # **时空联合嵌入（仅在 joint 模式下启用）**
+        if joint:
+            print('=====using joint space-time====')   # 时间编码 | 仿位置编码引入位置信息，时间编码引入时间信息
+            self.time_embedding = nn.Parameter(scale * torch.randn(T, width))  # T:视频片段数（时间步）
 
     def forward(self, x: torch.Tensor):
-        x = self.conv1(x)  # shape = [*, width, grid, grid]
-        x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
-        x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
-        x = torch.cat([self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device), x], dim=1)  # shape = [*, grid ** 2 + 1, width]
-        x = x + self.positional_embedding.to(x.dtype)
-        
-        if self.joint:
-            B = x.shape[0] // self.T
-            cls_tokens = x[:B, 0, :].unsqueeze(1)
-            x = x[:,1:]
-            x = rearrange(x, '(b t) n m -> (b n) t m',b=B,t=self.T)
-            x = x + self.time_embedding.to(x.dtype)
-            x = rearrange(x, '(b n) t m -> b (n t) m',b=B,t=self.T)
-            x = torch.cat((cls_tokens, x), dim=1)
+        """
+        前向传播
+        参数:
+        - x (Tensor): 输入的图像张量，形状为 (batch_size, 3, input_resolution, input_resolution)
 
+        返回:
+        - x (Tensor): 处理后的特征向量，形状为 (batch_size, output_dim)
+        """
+        
+        # **1. Patch Embedding：将输入图像转换为 patch 级别的 token**
+        x = self.conv1(x)  # 形状变为 (batch_size, width, grid, grid)，其中 grid = input_resolution // patch_size
+        
+        # **2. 调整形状**
+        x = x.reshape(x.shape[0], x.shape[1], -1)  # 变为 (batch_size, width, patch_num), patch 的数量 patch_num = grid*grid
+        x = x.permute(0, 2, 1)  # 变为 (batch_size, patch_num, width)，符合 Transformer 输入格式
+
+        # **3. 拼接 x 和 class token**
+        # 利用自动广播扩展为 batchsize 个 class token
+        batch_class_tokens = self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], 
+                                                                            dtype=x.dtype, device=x.device)
+        x = torch.cat([batch_class_tokens, x], dim=1)  # 形状变为 (batch_size, patch_num + 1, width)
+        
+        # **4. 加入位置编码**
+        x = x + self.positional_embedding.to(x.dtype)
+
+        # **5. 处理时空联合嵌入（仅适用于视频）**
+        if self.joint:
+            B = x.shape[0] // self.T  # 计算 batch 维度的样本数量
+            cls_tokens = x[:B, 0, :].unsqueeze(1)  # 获取 class token
+            x = x[:, 1:]  # 移除 class token，因为时间编码不加在 class token 上 |（class token 只加了位置编码）
+            
+            # **对时序维度进行调整**
+            x = rearrange(x, '(b t) n m -> (b n) t m', b=B, t=self.T)  # 重新排列时间维度 | n: patch_num | m: width-每个 patch 的特征维度 
+            x = x + self.time_embedding.to(x.dtype)  # 加入时间嵌入
+            x = rearrange(x, '(b n) t m -> b (n t) m', b=B, t=self.T)  # 变回原格式
+            x = torch.cat((cls_tokens, x), dim=1)  # 重新添加 class token -> (batch_size, patch_num+1, width) 即 (batch_size, seq_len, width) 
+        
+        # **6. Embedding Dropout（如果启用）**
         if self.emb_dropout > 0:
             x = self.dropout(x)
+
+        # **7. 归一化**
         x = self.ln_pre(x)
 
-        x = x.permute(1, 0, 2)  # NLD -> LND
+        # **8. 进入 Transformer 编码器**
+        x = x.permute(1, 0, 2)  # (batch_size, seq_len, width) -> (seq_len, batch_size, width)
         x = self.transformer(x)
-        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = x.permute(1, 0, 2)  # (seq_len, batch_size, width) -> (batch_size, seq_len, width)
 
-        x = self.ln_post(x[:, 0, :])
+        # **9. 取出 class token 并归一化**
+        x = self.ln_post(x[:, 0, :])  # 取出第一个 token（class token）
 
+        # **10. 进行投影（如果启用）**
         if self.proj is not None:
-            x = x @ self.proj
-
-        return x
+            x = x @ self.proj  # 矩阵乘法，将特征投影到 output_dim 维度
+        
+        return x  # 返回最终特征
 
 class CLIP(nn.Module):
     def __init__(self,
@@ -162,8 +246,12 @@ class CLIP(nn.Module):
                  vocab_size: int,
                  transformer_width: int,
                  transformer_heads: int,
-                 transformer_layers: int,joint=False,
-                 tsm=False, T=8,dropout = 0., emb_dropout = 0.
+                 transformer_layers: int,
+                 joint=False, # 是否使用时间信息编码，和位置编码进行联合训练
+                 tsm=False, # 是否使用时间偏移模块（Temporal Shift Module
+                 T=8,  # 视频片段数
+                 dropout=0., # Transformer 中的 Dropout 概率
+                 emb_dropout = 0. # 是否在 embedding 之后应用 Dropout（用于正则化）。
                  ):
         super().__init__()
 
@@ -180,8 +268,11 @@ class CLIP(nn.Module):
             width=vision_width,
             layers=vision_layers,
             heads=vision_heads,
-            output_dim=embed_dim,joint=joint,dropout=dpr,
-            emb_dropout=emb_dropout
+            output_dim=embed_dim,
+            dropout=dpr, # Transformer 中的 Dropout 概率，默认为 None。
+            emb_dropout=emb_dropout, # 是否在 embedding 之后应用 Dropout（用于正则化）。
+            joint=joint, # 是否使用时间信息编码，和位置编码进行联合训练
+            T=T # 视频片段数
         )
         if tsm:
             print('=========using TSM==========')
@@ -298,7 +389,7 @@ def convert_weights(model: nn.Module):
     model.apply(_convert_weights_to_fp16)
 
 
-def build_model(state_dict: dict, tsm=False,T=8,dropout=0., joint=False,emb_dropout=0.,pretrain=True):
+def build_model(state_dict: dict, tsm=False,T=8, dropout=0., joint=False, emb_dropout=0., pretrain=True):
     vit = "visual.proj" in state_dict
 
     if vit:

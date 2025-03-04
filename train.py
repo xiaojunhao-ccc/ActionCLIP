@@ -91,12 +91,12 @@ def main():
         config.network.arch,  # 模型架构名称，例如 'ViT-B/16' 
         device=device,
         jit=False, # 禁用 TorchScript，即不使用 JIT 编译，确保模型可训练 - Must set jit=False for training  ViT-B/32 
-        tsm=config.network.tsm, # 是否使用时间偏移模块（Temporal Shift Module）
-        T=config.data.num_segments,  # 视频片段数
-        dropout=config.network.drop_out, # 模型中使用的 dropout 概率
-        emb_dropout=config.network.emb_dropout, # 嵌入层的 dropout 概率
+        dropout=config.network.drop_out, # Transformer 中的 Dropout 概率，默认为 None。
+        emb_dropout=config.network.emb_dropout, # Embedding 层的 Dropout 概率
         pretrain=config.network.init, # 预训练模型的路径或标识符
-        joint = config.network.joint) # 是否使用联合训练模式
+        tsm=config.network.tsm, # 是否使用时间偏移模块（Temporal Shift Module）
+        T=config.data.num_segments,  # 视频片段数 (时间步数)
+        joint = config.network.joint) # 是否使用时间信息编码，和位置编码进行联合训练
     """视频多帧特征池化模块"""  # (降维时间维度，以匹配文本特征维度) (Post-network prompt: MeanP, Conv1D, LSTM and Transf)
     fusion_model = visual_prompt(config.network.sim_header, clip_state_dict, config.data.num_segments)
     """文本 encoder"""
