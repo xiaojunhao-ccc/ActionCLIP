@@ -10,58 +10,23 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, parent_dir)  # 让父目录模块优先导入
 from clip.model import VisualTransformer
 import numpy as np
-
-
-class TemporalShift(nn.Module):
-    def __init__(self, net, n_segment=3, n_div=8, inplace=False):
-        super().__init__()
-        self.net = net
-        self.n_segment = n_segment
-        self.fold_div = n_div
-        self.inplace = inplace
-        if inplace:
-            print('=> Using in-place shift...')
-        print('=> Using fold div: {}'.format(self.fold_div))
-
-    def forward(self, x):
-        x = self.shift(x, self.n_segment, fold_div=self.fold_div, inplace=self.inplace)
-        x = self.net(x)
-        return x
-
-    @staticmethod
-    def shift(x, n_segment, fold_div=3, inplace=False):
-        nt, c, h, w = x.size()
-        n_batch = nt // n_segment
-        x = x.view(n_batch, n_segment, c, h, w)
-
-        fold = c // fold_div
-        if inplace:
-            # Due to some out of order error when performing parallel computing. 
-            # May need to write a CUDA kernel.
-            raise NotImplementedError  
-            # out = InplaceShift.apply(x, fold)
-        else:
-            out = torch.zeros_like(x)
-            out[:, :-1, :fold] = x[:, 1:, :fold]  # shift left
-            out[:, 1:, fold: 2 * fold] = x[:, :-1, fold: 2 * fold]  # shift right
-            out[:, :, 2 * fold:] = x[:, :, 2 * fold:]  # not shift
-
-        return out.view(nt, c, h, w)
     
-    
+# 时间偏移 VIT
 class TemporalShift_VIT(nn.Module):
+    """ 在 ViT 前加上 时间偏移 """
     def __init__(self, net, n_segment=3, n_div=8, inplace=False):
         super(TemporalShift_VIT, self).__init__()
         self.net = net
         self.n_segment = n_segment
         self.fold_div = n_div
         self.inplace = inplace
-        if inplace:
-            print('=> Using in-place shift...')
+        if inplace: print('=> Using in-place shift...')
         print('=> Using fold div: {}'.format(self.fold_div))
 
     def forward(self, x):
+        # 时间偏移
         x = self.shift(x, self.n_segment, fold_div=self.fold_div, inplace=self.inplace)
+        # ViT
         x = self.net(x)
         return x
 
@@ -70,7 +35,6 @@ class TemporalShift_VIT(nn.Module):
         hw, nt, c = x.size()
         cls_ = x[0,:,:].unsqueeze(0)
         x = x[1:,:,:]
-#         print(cls_.size())
         x = x.permute(1,2,0)  # nt,c,hw
         n_batch = nt // n_segment
         h = int(np.sqrt(hw-1))
@@ -91,147 +55,35 @@ class TemporalShift_VIT(nn.Module):
         out = out.contiguous().view(nt, c, h*w)
         out = out.permute(2,0,1) #hw, nt, c
         out = torch.cat((cls_,out),dim=0)
-#         print(out.size())
         return out
     
 
-class InplaceShift(torch.autograd.Function):
-    # Special thanks to @raoyongming for the help to this function
-    @staticmethod
-    def forward(ctx, input, fold):
-        # not support higher order gradient
-        # input = input.detach_()
-        ctx.fold_ = fold
-        n, t, c, h, w = input.size()
-        buffer = input.data.new(n, t, fold, h, w).zero_()
-        buffer[:, :-1] = input.data[:, 1:, :fold]
-        input.data[:, :, :fold] = buffer
-        buffer.zero_()
-        buffer[:, 1:] = input.data[:, :-1, fold: 2 * fold]
-        input.data[:, :, fold: 2 * fold] = buffer
-        return input
+# 在视觉变换器 (ViT) 模型中添加时间位移模块 (Temporal Shift Module)       
+def make_temporal_shift_vit(net, n_segment, n_div=8, place='block'):
+    """
+    参数解释：
+    net: 视觉变换器模型 (VisualTransformer)
+    n_segment: 视频片段数 | 例如：视频的总帧数是 80, n_segment=8, 那么模型将视频分成 8 个段，每个段有 10 帧
+    n_div: 将每个块分成的部分数 (默认为 8)
+    place: 插入时间位移的位置 ('block' 表示在每个块上添加)
+    temporal_pool: 是否使用时间池化来调整每个层级的段数
+    """
+    assert isinstance(net, VisualTransformer), "The net should be 'VisualTransformer'"
+    assert place == 'block', "The place should be 'block', The extra place is unimplemented"
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        # grad_output = grad_output.detach_()
-        fold = ctx.fold_
-        n, t, c, h, w = grad_output.size()
-        buffer = grad_output.data.new(n, t, fold, h, w).zero_()
-        buffer[:, 1:] = grad_output.data[:, :-1, :fold]
-        grad_output.data[:, :, :fold] = buffer
-        buffer.zero_()
-        buffer[:, :-1] = grad_output.data[:, 1:, fold: 2 * fold]
-        grad_output.data[:, :, fold: 2 * fold] = buffer
-        return grad_output, None
+    n_segment_list = [n_segment] * 4 
 
-
-class TemporalPool(nn.Module):
-    def __init__(self, net, n_segment):
-        super(TemporalPool, self).__init__()
-        self.net = net
-        self.n_segment = n_segment
-
-    def forward(self, x):
-        x = self.temporal_pool(x, n_segment=self.n_segment)
-        return self.net(x)
-
-    @staticmethod
-    def temporal_pool(x, n_segment):
-        nt, c, h, w = x.size()
-        n_batch = nt // n_segment
-        x = x.view(n_batch, n_segment, c, h, w).transpose(1, 2)  # n, c, t, h, w
-        x = F.max_pool3d(x, kernel_size=(3, 1, 1), stride=(2, 1, 1), padding=(1, 0, 0))
-        x = x.transpose(1, 2).contiguous().view(nt // 2, c, h, w)
-        return x
-        
-def make_temporal_shift_vit(net, n_segment, n_div=8, place='block', temporal_pool=False):
-    if temporal_pool:
-        n_segment_list = [n_segment, n_segment // 2, n_segment // 2, n_segment // 2]
-    else:
-        n_segment_list = [n_segment] * 4
-    assert n_segment_list[-1] > 0
+    assert n_segment_list[-1] > 0  # 确保最后一个层级的片段数大于零
     print('=> n_segment per stage: {}'.format(n_segment_list))
+    
+    def _make_block_temporal(stage, this_segment):
+        blocks = list(stage.children())
+        print('=> Processing stage with {} blocks'.format(len(blocks)))
+        # 遍历指定层级中的所有块，将这些块替换为有时间位移模块的`TemporalShift_VIT`
+        for i, b in enumerate(blocks):
+            blocks[i] = TemporalShift_VIT(b, n_segment=this_segment, n_div=n_div)
+        return nn.Sequential(*(blocks))
 
-    if isinstance(net, VisualTransformer):
-        if place == 'block':
-            def make_block_temporal(stage, this_segment):
-                blocks = list(stage.children())
-                print('=> Processing stage with {} blocks'.format(len(blocks)))
-                for i, b in enumerate(blocks):
-                    blocks[i] = TemporalShift_VIT(b, n_segment=this_segment, n_div=n_div)
-                return nn.Sequential(*(blocks))
-
-            net.transformer.resblocks = make_block_temporal(net.transformer.resblocks, n_segment_list[0])
-            
-#             net.layer2 = make_block_temporal(net.layer2, n_segment_list[1])
-#             net.layer3 = make_block_temporal(net.layer3, n_segment_list[2])
-#             net.layer4 = make_block_temporal(net.layer4, n_segment_list[3])
-
-        
-    else:
-        raise NotImplementedError(place)
-
-
-def make_temporal_pool(net, n_segment):
-    import torchvision
-    if isinstance(net, torchvision.models.ResNet):
-        print('=> Injecting nonlocal pooling')
-        net.layer2 = TemporalPool(net.layer2, n_segment)
-    else:
-        raise NotImplementedError
-
-
-if __name__ == '__main__':
-    """
-    这段代码在测试 Temporal Shift Module (TSM) 的两种实现方式（inplace=False 和 inplace=True）
-    在 CPU 和 GPU 上的前向传播（forward）和反向传播（backward）结果是否一致，
-    确保 inplace 版本不会引入数值误差或梯度计算问题。
-    """
-    # test inplace shift v.s. vanilla shift
-    tsm1 = TemporalShift(nn.Sequential(), n_segment=8, n_div=8, inplace=False)
-    tsm2 = TemporalShift(nn.Sequential(), n_segment=8, n_div=8, inplace=True)
-
-    print('=> Testing CPU...')
-    # test forward
-    with torch.no_grad():
-        for i in range(10):
-            x = torch.rand(2 * 8, 3, 224, 224)
-            y1 = tsm1(x)
-            y2 = tsm2(x)
-            assert torch.norm(y1 - y2).item() < 1e-5
-
-    # test backward
-    with torch.enable_grad():
-        for i in range(10):
-            x1 = torch.rand(2 * 8, 3, 224, 224)
-            x1.requires_grad_()
-            x2 = x1.clone()
-            y1 = tsm1(x1)
-            y2 = tsm2(x2)
-            grad1 = torch.autograd.grad((y1 ** 2).mean(), [x1])[0]
-            grad2 = torch.autograd.grad((y2 ** 2).mean(), [x2])[0]
-            assert torch.norm(grad1 - grad2).item() < 1e-5
-
-    print('=> Testing GPU...')
-    tsm1.cuda()
-    tsm2.cuda()
-    # test forward
-    with torch.no_grad():
-        for i in range(10):
-            x = torch.rand(2 * 8, 3, 224, 224).cuda()
-            y1 = tsm1(x)
-            y2 = tsm2(x)
-            assert torch.norm(y1 - y2).item() < 1e-5
-
-    # test backward
-    with torch.enable_grad():
-        for i in range(10):
-            x1 = torch.rand(2 * 8, 3, 224, 224).cuda()
-            x1.requires_grad_()
-            x2 = x1.clone()
-            y1 = tsm1(x1)
-            y2 = tsm2(x2)
-            grad1 = torch.autograd.grad((y1 ** 2).mean(), [x1])[0]
-            grad2 = torch.autograd.grad((y2 ** 2).mean(), [x2])[0]
-            assert torch.norm(grad1 - grad2).item() < 1e-5
-    print('Test passed.')
+    # 给 net.transformer.resblocks 添加 时间位移模块 (Temporal Shift Module)
+    net.transformer.resblocks = _make_block_temporal(stage=net.transformer.resblocks, 
+                                                     this_segment=n_segment_list[0])
