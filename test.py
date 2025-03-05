@@ -1,7 +1,3 @@
-# Code for "ActionCLIP: ActionCLIP: A New Paradigm for Action Recognition"
-# arXiv:
-# Mengmeng Wang, Jiazheng Xing, Yong Liu
-
 import os
 import clip
 import torch.nn as nn
@@ -15,7 +11,6 @@ from pathlib import Path
 import yaml
 from dotmap import DotMap
 import pprint
-import numpy
 from modules.Visual_Prompt import visual_prompt
 from utils.Augmentation import get_augmentation
 import torch

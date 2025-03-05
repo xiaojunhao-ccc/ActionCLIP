@@ -1,7 +1,3 @@
-# Code for "ActionCLIP: ActionCLIP: A New Paradigm for Action Recognition"
-# arXiv:
-# Mengmeng Wang, Jiazheng Xing, Yong Liu
-
 import os
 def get_model_path(ckpt):
     if os.path.isfile(ckpt):

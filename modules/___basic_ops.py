@@ -1,9 +1,4 @@
-# Code for "ActionCLIP: ActionCLIP: A New Paradigm for Action Recognition"
-# arXiv:
-# Mengmeng Wang, Jiazheng Xing, Yong Liu
-
 import torch
-import math
 
 
 class Identity(torch.nn.Module):

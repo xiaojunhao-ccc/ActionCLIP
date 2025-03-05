@@ -1,7 +1,3 @@
-# Code for "ActionCLIP: ActionCLIP: A New Paradigm for Action Recognition"
-# arXiv:
-# Mengmeng Wang, Jiazheng Xing, Yong Liu
-
 import torch
 from torch import nn
 from collections import OrderedDict
