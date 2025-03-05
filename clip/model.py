@@ -1,7 +1,3 @@
-# Code for "ActionCLIP: ActionCLIP: A New Paradigm for Action Recognition"
-# arXiv:
-# Mengmeng Wang, Jiazheng Xing, Yong Liu
-
 from collections import OrderedDict
 from typing import Tuple, Union
 import numpy as np
