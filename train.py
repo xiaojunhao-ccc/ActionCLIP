@@ -55,7 +55,6 @@ def main():
         project=config['network']['type'],
         name=f'{args.log_time}_{config['network']['type']}_{config['network']['arch']}_{config['data']['dataset']}'
     )
-    config = DotMap(config) # 将 config 转换为 DotMap 对象，使其可以使用点符号 (config.key) 访问字典中的键值。 
 
     # 打印当前训练配置，并创建相关的文件夹，用于记录
     print('-' * 80)
@@ -67,6 +66,8 @@ def main():
     pp = pprint.PrettyPrinter(indent=4)
     pp.pprint(config)
     print('-' * 80)
+
+    config = DotMap(config) # 将 config 转换为 DotMap 对象，使其可以使用点符号 (config.key) 访问字典中的键值。 
 
     Path(working_dir).mkdir(parents=True, exist_ok=True)
     shutil.copy(args.config, working_dir)
@@ -104,6 +105,7 @@ def main():
     model_text = torch.nn.DataParallel(model_text).cuda()
     model_image = torch.nn.DataParallel(model_image).cuda()
     fusion_model = torch.nn.DataParallel(fusion_model).cuda()
+    
     # 浮点精度
     if device == "cpu":
         model_text.float()
@@ -159,7 +161,7 @@ def main():
     optimizer = _optimizer(config, model, fusion_model)
     lr_scheduler = _lr_scheduler(config, optimizer)
 
-    # 生成文本 prompt，用于构造文本模态的训练数据 (dance -> a photo of action {{dance}})
+    # 生成文本 prompt (dance -> a photo of action {{dance}})
     classes, num_text_aug, text_dict = text_prompt(train_data)
 
     # 如果设置了只进行评估，则直接在验证集上评估模型，并返回
@@ -243,7 +245,7 @@ def main():
 
         # 每隔 `eval_freq` 轮进行一次 eval
         if epoch % config.logging.eval_freq == 0:  # and epoch>0
-            prec1 = validate(epoch,val_loader, classes, device, model,fusion_model, config,num_text_aug)
+            prec1 = validate(epoch,val_loader, classes, device, model, fusion_model, config,num_text_aug)
 
         # 记录当前准确率
         is_best = prec1 > best_prec1
